@@ -497,6 +497,7 @@ typedef enum {
   NDPI_PROTOCOL_AWS_DYNAMODB          = 465,
   NDPI_PROTOCOL_ESPN                  = 466,
   NDPI_PROTOCOL_AKAMAI                = 467,
+  NDPI_PROTOCOL_BIMODAL               = 468
 
 #ifdef CUSTOM_NDPI_PROTOCOLS
 #include "../../../nDPI-custom/custom_ndpi_protocol_ids.h"
