@@ -46,13 +46,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
 {
     NDPI_LOG_DBG(ndpi_struct, "BIMODAL dissector called\n");
 
-    /*if (flow->detected_protocol_stack[0] != NDPI_PROTOCOL_UNKNOWN)
-    {
-        printf("Resetting previously detected protocol: %d\n", flow->detected_protocol_stack[0]);
-        flow->detected_protocol_stack[0] = NDPI_PROTOCOL_UNKNOWN;
-        flow->confidence = NDPI_CONFIDENCE_UNKNOWN;
-    }*/
-
     struct ndpi_packet_struct *packet = &ndpi_struct->packet;
 
     // Проверяем базовые условия
@@ -77,10 +70,8 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
     struct bimodal_flow_stats *stats = (struct bimodal_flow_stats *)flow->l4.udp.bimodal_stats;
     u_int16_t pkt_len = packet->payload_packet_len;
 
-    // Обновляем статистику
     stats->total_packets++;
 
-    // Классификация по длине пакета (исправлен последний диапазон)
     if (pkt_len <= 127)
         stats->range_1_127++;
     else if (pkt_len <= 255)
@@ -98,7 +89,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
     else if (pkt_len <= 1024)
         stats->range_896_1024++;
 
-    // Проверяем детекцию каждые 10 пакетов после первых 10
     if (stats->total_packets >= 10 && (stats->total_packets % 10 == 0))
     {
         float total = (float)stats->total_packets;
@@ -114,28 +104,24 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
 
         int bimodal_score = 0;
 
-        // Критерий 1: наличие пиков в коротких и длинных пакетах
         if (ratio_short >= 0.15f && ratio_long >= 0.15f)
         {
             bimodal_score += 2;
             NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed peaks criterion\n");
         }
 
-        // Критерий 2: определенная доля почти средних пакетов
         if (ratio_mid_short + ratio_mid_long <= 0.5f)
         {
             bimodal_score++;
             NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed low middle criterion\n");
         }
 
-        // Критерий 3: определенная доля средних пакетов
         if (ratio_mid <= 0.2f)
         {
             bimodal_score++;
             NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed low middle criterion\n");
         }
 
-        // Детектируем если набрали достаточно баллов
         if (bimodal_score >= 3)
         {
             NDPI_LOG_INFO(ndpi_struct,
