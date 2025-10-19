@@ -1068,6 +1068,9 @@ struct ndpi_flow_udp_struct
   /* NDPI_PROTOCOL_TFTP */
   u_int16_t tftp_data_num;
   u_int16_t tftp_ack_num;
+
+  /* NDPI_PROTOCOL_BIMODAL */
+  void* bimodal_stats;
 };
 
 /* ************************************************** */
@@ -1873,21 +1876,6 @@ struct ndpi_flow_struct
      party dissectors for storing private data
    */
   u_int8_t priv_data[16];
-
-  // Структура для хранения статистики потока для протокола Bimodal
-  struct bimodal_flow_stats
-  {
-    u_int32_t total_packets;
-    u_int32_t range_1_127;
-    u_int32_t range_128_255;
-    u_int32_t range_256_383;
-    u_int32_t range_384_511;
-    u_int32_t range_512_639;
-    u_int32_t range_640_767;
-    u_int32_t range_768_895;
-    u_int32_t range_896_1023;
-    u_int32_t last_detection_check;
-  } bimodal_stats;
 };
 
 #if !defined(NDPI_CFFI_PREPROCESSING) && defined(__linux__)
