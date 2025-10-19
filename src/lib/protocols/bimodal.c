@@ -58,7 +58,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
     // Проверяем базовые условия
     if (packet->udp == NULL || packet->payload_packet_len == 0 || packet->payload_packet_len >= 1025)
     {
-        printf("=== BIMODAL DISSECTOR EXCLUDED1 ===");
         NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
         return;
     }
@@ -69,13 +68,11 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         init_bimodal_stats(flow);
         if (!flow->l4.udp.bimodal_stats)
         {
-            printf("=== BIMODAL DISSECTOR EXCLUDED2 ===");
             NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
             return;
         }
     }
 
-    printf("=== BIMODAL DISSECTOR CALLED ===");
 
     struct bimodal_flow_stats *stats = (struct bimodal_flow_stats *)flow->l4.udp.bimodal_stats;
     u_int16_t pkt_len = packet->payload_packet_len;
@@ -103,14 +100,9 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
 
     printf("total_packets = %d", stats->total_packets);
 
-    /*if(stats->total_packets < 1000){
-        flow->detected_protocol_stack[0] = NDPI_PROTOCOL_UNKNOWN;
-        flow->confidence = NDPI_CONFIDENCE_DPI_PARTIAL;
-    }*/
-    // Проверяем детекцию каждые 100 пакетов после первых 1000
+    // Проверяем детекцию каждые 10 пакетов после первых 10
     if (stats->total_packets >= 10 && (stats->total_packets % 10 == 0))
     {
-        printf("=== BIMODAL DISSECTOR CHECK CALLED ===");
         float total = (float)stats->total_packets;
         float ratio_short = (float)(stats->range_1_127) / total;
         float ratio_mid_short = (float)(stats->range_128_255 + stats->range_256_383) / total;
@@ -127,7 +119,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         // Критерий 1: наличие пиков в коротких и длинных пакетах
         if (ratio_short >= 0.15f && ratio_long >= 0.15f)
         {
-            printf("CRITERION 1 is passed");
             bimodal_score += 2;
             NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed peaks criterion\n");
         }
@@ -135,7 +126,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         // Критерий 2: определенная доля почти средних пакетов
         if (ratio_mid_short + ratio_mid_long <= 0.5f)
         {
-            printf("CRITERION 2 is passed");
             bimodal_score++;
             NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed low middle criterion\n");
         }
@@ -143,7 +133,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         // Критерий 3: определенная доля средних пакетов
         if (ratio_mid <= 0.2f)
         {
-            printf("CRITERION 3 is passed");
             bimodal_score++;
             NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed low middle criterion\n");
         }
@@ -151,7 +140,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         // Детектируем если набрали достаточно баллов
         if (bimodal_score >= 3)
         {
-            printf("CHECK complete BIMODAL find");
             NDPI_LOG_INFO(ndpi_struct,
                           "[BIMODAL] DETECTED! Score=%d, packets=%u, ratios: S=%.3f, MS=%.3f, M=%.3f, ML=%.3f, L=%.3f\n",
                           bimodal_score, stats->total_packets, ratio_short, ratio_mid_short, ratio_mid, ratio_mid_long, ratio_long);
@@ -172,7 +160,6 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
     // Если прошло много пакетов и не детектировали - исключаем
     if (stats->total_packets > 2000)
     {
-        printf("EXCLUDE BIMODAL");
         NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Excluding after %u packets\n", stats->total_packets);
         NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
         free_bimodal_stats(flow);
