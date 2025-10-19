@@ -98,10 +98,8 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
     else if (pkt_len <= 1024)
         stats->range_896_1024++;
 
-    printf("total_packets = %d", stats->total_packets);
-
-    // Проверяем детекцию каждые 10 пакетов после первых 10
-    if (stats->total_packets >= 10 && (stats->total_packets % 10 == 0))
+    // Проверяем детекцию каждые 10 пакетов после первых 20
+    if (stats->total_packets >= 20 && (stats->total_packets % 10 == 0))
     {
         float total = (float)stats->total_packets;
         float ratio_short = (float)(stats->range_1_127) / total;
