@@ -16,8 +16,7 @@ struct bimodal_flow_stats
     u_int32_t range_512_639;
     u_int32_t range_640_767;
     u_int32_t range_768_895;
-    u_int32_t range_896_1023;
-    u_int32_t last_detection_check;
+    u_int32_t range_896_1024;
 };
 
 // Инициализация статистики
@@ -45,19 +44,22 @@ static void free_bimodal_stats(struct ndpi_flow_struct *flow)
 static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct,
                                 struct ndpi_flow_struct *flow)
 {
-    struct ndpi_packet_struct *packet = &flow->packet;
+    NDPI_LOG_DBG(ndpi_struct, "BIMODAL dissector called\n");
 
-    NDPI_LOG_DBG(ndpi_struct, "search BIMODAL\n");
-
-    if (packet->udp == NULL)
+    /*if (flow->detected_protocol_stack[0] != NDPI_PROTOCOL_UNKNOWN)
     {
-        NDPI_EXCLUDE_PROTO(ndpi_struct, flow);
-        return;
-    }
+        printf("Resetting previously detected protocol: %d\n", flow->detected_protocol_stack[0]);
+        flow->detected_protocol_stack[0] = NDPI_PROTOCOL_UNKNOWN;
+        flow->confidence = NDPI_CONFIDENCE_UNKNOWN;
+    }*/
 
-    if (packet->payload_packet_len == 0)
+    struct ndpi_packet_struct *packet = &ndpi_struct->packet;
+
+    // Проверяем базовые условия
+    if (packet->udp == NULL || packet->payload_packet_len == 0 || packet->payload_packet_len >= 1025)
     {
-        NDPI_EXCLUDE_PROTO(ndpi_struct, flow);
+        printf("=== BIMODAL DISSECTOR EXCLUDED1 ===");
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
         return;
     }
 
@@ -67,10 +69,13 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         init_bimodal_stats(flow);
         if (!flow->l4.udp.bimodal_stats)
         {
-            NDPI_EXCLUDE_PROTO(ndpi_struct, flow);
+            printf("=== BIMODAL DISSECTOR EXCLUDED2 ===");
+            NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
             return;
         }
     }
+
+    printf("=== BIMODAL DISSECTOR CALLED ===");
 
     struct bimodal_flow_stats *stats = (struct bimodal_flow_stats *)flow->l4.udp.bimodal_stats;
     u_int16_t pkt_len = packet->payload_packet_len;
@@ -78,7 +83,7 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
     // Обновляем статистику
     stats->total_packets++;
 
-    // Классификация по длине пакета
+    // Классификация по длине пакета (исправлен последний диапазон)
     if (pkt_len <= 127)
         stats->range_1_127++;
     else if (pkt_len <= 255)
@@ -93,45 +98,85 @@ static void ndpi_search_bimodal(struct ndpi_detection_module_struct *ndpi_struct
         stats->range_640_767++;
     else if (pkt_len <= 895)
         stats->range_768_895++;
-    else if (pkt_len <= 1023)
-        stats->range_896_1023++;
+    else if (pkt_len <= 1024)
+        stats->range_896_1024++;
 
-    // Проверяем детекцию каждые 500 пакетов после первых 1000
-    if (stats->total_packets >= 1000 && (stats->total_packets % 500 == 0))
+    printf("total_packets = %d", stats->total_packets);
+
+    /*if(stats->total_packets < 1000){
+        flow->detected_protocol_stack[0] = NDPI_PROTOCOL_UNKNOWN;
+        flow->confidence = NDPI_CONFIDENCE_DPI_PARTIAL;
+    }*/
+    // Проверяем детекцию каждые 100 пакетов после первых 1000
+    if (stats->total_packets >= 10 && (stats->total_packets % 10 == 0))
     {
-        float ratio_short = (float)(stats->range_1_127) / stats->total_packets;
-        float ratio_mid_short = (float)(stats->range_128_255 + stats->range_256_383) / stats->total_packets;
-        float ratio_mid = (float)(stats->range_384_511 + stats->range_512_639) / stats->total_packets;
-        float ratio_mid_long  = (float)(stats->range_640_767 + stats->range_768_895) / stats->total_packets;
-        float ratio_long  = (float)(stats->range_896_1023) / stats->total_packets;
+        printf("=== BIMODAL DISSECTOR CHECK CALLED ===");
+        float total = (float)stats->total_packets;
+        float ratio_short = (float)(stats->range_1_127) / total;
+        float ratio_mid_short = (float)(stats->range_128_255 + stats->range_256_383) / total;
+        float ratio_mid = (float)(stats->range_384_511 + stats->range_512_639) / total;
+        float ratio_mid_long = (float)(stats->range_640_767 + stats->range_768_895) / total;
+        float ratio_long = (float)(stats->range_896_1024) / total;
 
-        // Критерии бимодального распределения
-        if (ratio_short >= 0.22f &&   
-            ratio_mid_short <= 0.27f &&    
-            ratio_mid <= 0.2f &&
-            ratio_mid_long <= 0.27f &&
-            ratio_long >= 0.22f)
-        { 
+        NDPI_LOG_INFO(ndpi_struct,
+                      "[BIMODAL] Checking: packets=%u, short=%.3f, mid_short=%.3f, mid=%.3f, mid_long=%.3f, long=%.3f\n",
+                      stats->total_packets, ratio_short, ratio_mid_short, ratio_mid, ratio_mid_long, ratio_long);
 
-            /* This looks BIMODAL */
-            NDPI_LOG_INFO(ndpi_struct, "[BIMODAL] Detected custom protocol: short=%.2f, mid_short=%.2f, mid=%.2f, mid_long=%.2f, long=%.2f\n",
-                          ratio_short, ratio_mid_short, ratio_mid, ratio_mid_long, ratio_long);
+        int bimodal_score = 0;
+
+        // Критерий 1: наличие пиков в коротких и длинных пакетах
+        if (ratio_short >= 0.15f && ratio_long >= 0.15f)
+        {
+            printf("CRITERION 1 is passed");
+            bimodal_score += 2;
+            NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed peaks criterion\n");
+        }
+
+        // Критерий 2: определенная доля почти средних пакетов
+        if (ratio_mid_short + ratio_mid_long <= 0.5f)
+        {
+            printf("CRITERION 2 is passed");
+            bimodal_score++;
+            NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed low middle criterion\n");
+        }
+
+        // Критерий 3: определенная доля средних пакетов
+        if (ratio_mid <= 0.2f)
+        {
+            printf("CRITERION 3 is passed");
+            bimodal_score++;
+            NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Passed low middle criterion\n");
+        }
+
+        // Детектируем если набрали достаточно баллов
+        if (bimodal_score >= 3)
+        {
+            printf("CHECK complete BIMODAL find");
+            NDPI_LOG_INFO(ndpi_struct,
+                          "[BIMODAL] DETECTED! Score=%d, packets=%u, ratios: S=%.3f, MS=%.3f, M=%.3f, ML=%.3f, L=%.3f\n",
+                          bimodal_score, stats->total_packets, ratio_short, ratio_mid_short, ratio_mid, ratio_mid_long, ratio_long);
 
             ndpi_set_detected_protocol(ndpi_struct, flow,
                                        NDPI_PROTOCOL_BIMODAL,
-                                       NDPI_PROTOCOL_UNKNOWN);
+                                       NDPI_PROTOCOL_UNKNOWN,
+                                       NDPI_CONFIDENCE_DPI);
             free_bimodal_stats(flow);
             return;
+        }
+        else
+        {
+            NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Not detected, score=%d\n", bimodal_score);
         }
     }
 
     // Если прошло много пакетов и не детектировали - исключаем
-    if (stats->total_packets > 5000)
+    if (stats->total_packets > 2000)
     {
-        NDPI_EXCLUDE_PROTO(ndpi_struct, flow);
+        printf("EXCLUDE BIMODAL");
+        NDPI_LOG_DBG(ndpi_struct, "[BIMODAL] Excluding after %u packets\n", stats->total_packets);
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
         free_bimodal_stats(flow);
     }
-    return;
 }
 
 // Функция инициализации протокола
@@ -141,6 +186,15 @@ void init_bimodal_dissector(struct ndpi_detection_module_struct *ndpi_struct)
                        ndpi_search_bimodal,
                        NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
                        1, NDPI_PROTOCOL_BIMODAL);
-
-    ndpi_struct->proto_defaults[NDPI_PROTOCOL_BIMODAL].funcs.flow_free = free_bimodal_stats;
 }
+
+/*void init_bimodal_detector(struct ndpi_detection_module_struct *ndpi_struct)
+{
+    printf("=== INITIALIZING BIMODAL DETECTOR ===\n");
+
+    NDPI_PROTOCOL_BITMASK all;
+    NDPI_BITMASK_SET_ALL(all);
+
+    // Устанавливаем детектор для всех протоколов
+    ndpi_set_protocol_detection_bitmask2(ndpi_struct, &all);
+}*/
